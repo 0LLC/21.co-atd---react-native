@@ -15,7 +15,8 @@ const findXcodeProject = require('./findXcodeProject');
 const parseIOSDevicesList = require('./parseIOSDevicesList');
 const findMatchingSimulator = require('./findMatchingSimulator');
 const getBuildPath = function(configuration = 'Debug', appName, isDevice) {
-  return `build/Build/Products/${configuration}-${isDevice ? 'iphoneos' : 'iphonesimulator'}/${appName}.app`;
+  // patch: return `build/Build/Products/${configuration}-${isDevice ? 'iphoneos' : 'iphonesimulator'}/${appName}.app`;
+  return `build/Products/${configuration}-${isDevice ? 'iphoneos' : 'iphonesimulator'}/${appName}.app`;
 };
 
 function runIOS(argv, config, args) {
@@ -34,7 +35,7 @@ function runIOS(argv, config, args) {
   if (args.device) {
     const selectedDevice = matchingDevice(devices, args.device);
     if (selectedDevice){
-      return runOnDevice(selectedDevice, scheme, xcodeProject, args.configuration, args.packager);
+      return runOnDevice(selectedDevice, scheme, xcodeProject, args.configuration);
     } else {
       if (devices){
         console.log('Could not find device with the name: "' + args.device + '".');
@@ -47,14 +48,14 @@ function runIOS(argv, config, args) {
   } else if (args.udid) {
     return runOnDeviceByUdid(args, scheme, xcodeProject, devices);
   } else {
-    return runOnSimulator(xcodeProject, args, scheme);
+    return runOnSimulator(xcodeProject, args, inferredSchemeName, scheme);
   }
 }
 
 function runOnDeviceByUdid(args, scheme, xcodeProject, devices) {
   const selectedDevice = matchingDeviceByUdid(devices, args.udid);
   if (selectedDevice){
-    return runOnDevice(selectedDevice, scheme, xcodeProject, args.configuration, args.packager);
+    return runOnDevice(selectedDevice, scheme, xcodeProject, args.configuration);
   } else {
     if (devices){
       console.log('Could not find device with the udid: "' + args.udid + '".');
@@ -66,7 +67,7 @@ function runOnDeviceByUdid(args, scheme, xcodeProject, devices) {
   }
 }
 
-function runOnSimulator(xcodeProject, args, scheme){
+function runOnSimulator(xcodeProject, args, inferredSchemeName, scheme){
   return new Promise((resolve) => {
     try {
       var simulators = JSON.parse(
@@ -91,10 +92,10 @@ function runOnSimulator(xcodeProject, args, scheme){
     }
     resolve(selectedSimulator.udid)
   })
-  .then((udid) => buildProject(xcodeProject, udid, scheme, args.configuration, args.packager))
+  .then((udid) => buildProject(xcodeProject, udid, scheme, args.configuration))
   .then((appName) => {
     if (!appName) {
-      appName = scheme;
+      appName = inferredSchemeName;
     }
     let appPath = getBuildPath(args.configuration, appName);
     console.log(`Installing ${appPath}`);
@@ -111,8 +112,8 @@ function runOnSimulator(xcodeProject, args, scheme){
   })
 }
 
-function runOnDevice(selectedDevice, scheme, xcodeProject, configuration, launchPackager) {
-  return buildProject(xcodeProject, selectedDevice.udid, scheme, configuration, launchPackager)
+function runOnDevice(selectedDevice, scheme, xcodeProject, configuration){
+  return buildProject(xcodeProject, selectedDevice.udid, scheme, configuration)
   .then((appName) => {
     if (!appName) {
       appName = scheme;
@@ -135,7 +136,7 @@ function runOnDevice(selectedDevice, scheme, xcodeProject, configuration, launch
   });
 }
 
-function buildProject(xcodeProject, udid, scheme, configuration = 'Debug', launchPackager = false) {
+function buildProject(xcodeProject, udid, scheme, configuration = 'Debug') {
   return new Promise((resolve,reject) =>
   {
      var xcodebuildArgs = [
@@ -146,7 +147,7 @@ function buildProject(xcodeProject, udid, scheme, configuration = 'Debug', launc
       '-derivedDataPath', 'build',
     ];
     console.log(`Building using "xcodebuild ${xcodebuildArgs.join(' ')}"`);
-    const buildProcess = child_process.spawn('xcodebuild', xcodebuildArgs, getProcessOptions(launchPackager));
+    const buildProcess = child_process.spawn('xcodebuild', xcodebuildArgs);
     let buildOutput = "";
     buildProcess.stdout.on('data', function(data) {
       console.log(data.toString());
@@ -157,11 +158,11 @@ function buildProject(xcodeProject, udid, scheme, configuration = 'Debug', launc
     });
     buildProcess.on('close', function(code) {
       //FULL_PRODUCT_NAME is the actual file name of the app, which actually comes from the Product Name in the build config, which does not necessary match a scheme name,  example output line: export FULL_PRODUCT_NAME="Super App Dev.app"
-      let productNameMatch = /export FULL_PRODUCT_NAME="?(.+).app"?$/m.exec(buildOutput);
+      let productNameMatch = /export FULL_PRODUCT_NAME="?(.+).app/.exec(buildOutput);
       if (productNameMatch && productNameMatch.length && productNameMatch.length > 1) {
         return resolve(productNameMatch[1]);//0 is the full match, 1 is the app name
       }
-      return buildProcess.error? reject(buildProcess.error) : resolve();
+      return buildProcess.error? reject(error) : resolve();
     });
   });
 }
@@ -197,16 +198,6 @@ function printFoundDevices(devices){
   }
 }
 
-function getProcessOptions(launchPackager) {
-  if (launchPackager) {
-    return {};
-  }
-
-  return {
-    env: Object.assign({}, process.env, { RCT_NO_LAUNCH_PACKAGER: true }),
-  };
-}
-
 module.exports = {
   name: 'run-ios',
   description: 'builds your app and starts it on iOS simulator',
@@ -222,7 +213,7 @@ module.exports = {
   },
   {
     desc: "Run on a connected device, e.g. Max's iPhone",
-    cmd: 'react-native run-ios --device "Max\'s iPhone"',
+    cmd: "react-native run-ios --device 'Max's iPhone'",
   },
   ],
   options: [{
@@ -243,11 +234,8 @@ module.exports = {
   }, {
     command: '--device [string]',
     description: 'Explicitly set device to use by name.  The value is not required if you have a single device connected.',
-  }, {
+  },{
     command: '--udid [string]',
     description: 'Explicitly set device to use by udid',
-  }, {
-    command: '--no-packager',
-    description: 'Do not launch packager while building',
-  }],
+  }]
 };

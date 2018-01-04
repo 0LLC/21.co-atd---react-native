@@ -407,6 +407,8 @@ class VirtualizedList extends React.PureComponent<OptionalProps, Props, State> {
   }
 
   componentWillUnmount() {
+    this.setState({first: this.props.initialScrollIndex || 0, last: Math.min(this.props.getItemCount(this.props.data),(this.props.initialScrollIndex || 0) + this.props.initialNumToRender,) - 1});
+    this._updateCellsToRenderBatcher.schedule();
     this._updateViewableItems(null);
     this._updateCellsToRenderBatcher.dispose();
     this._viewabilityHelper.dispose();
@@ -694,7 +696,7 @@ class VirtualizedList extends React.PureComponent<OptionalProps, Props, State> {
   }
 
   componentDidUpdate() {
-    this._scheduleCellsToRenderUpdate();
+    this._updateCellsToRenderBatcher.schedule();
   }
 
   _averageCellLength = 0;
@@ -996,7 +998,7 @@ class VirtualizedList extends React.PureComponent<OptionalProps, Props, State> {
       // Don't worry about interactions when scrolling quickly; focus on filling content as fast
       // as possible.
       this._updateCellsToRenderBatcher.dispose({abort: true});
-      this._updateCellsToRender();
+      this._updateCellsToRenderBatcher.schedule();
       return;
     } else {
       this._updateCellsToRenderBatcher.schedule();
